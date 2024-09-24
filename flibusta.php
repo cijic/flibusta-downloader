@@ -1,50 +1,145 @@
 <?php
 
-$script_dir = dirname(__FILE__);
-$site_file  = $script_dir . '/flibusta.txt';
+# TODO:
+# 1/ Extract      file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1))); to function
+# 2/ Replace flibusta.txx with value from .env.
+# 3/ Move getBookInfo before downloading.
 
-if (file_exists($site_file)) {
-    echo "Файл flibusta.txt найден в директории скрипта.\n";
+function sanitizeFilename(string $filename, string $sanitizer = ' ')
+{
+    $unsupportedSymbols = ['\\', '/', ':', '*', '?', '"', '<', '>', '|', "\t", "\r", "\n", "\v"];
+    $filename           = str_replace($unsupportedSymbols, $sanitizer, $filename);
 
-    $links = file($site_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    return $filename;
+}
 
-    foreach ($links as $link) {
-        $link = trim($link);
+function getDotEnv(): array | false
+{
+    return parse_ini_file('.env');
+}
 
-        if (strpos($link, "/b/") !== false) {
-            echo "Скачиваем $link" . PHP_EOL;
-            $userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3';
-            $options   = [
-                'http' => [
-                    'header' => 'User-Agent: ' . $userAgent . "\r\n" .
-                    'Cookie: ' . 'SESS717db4750c98b34dc0a0cf14a0c49e88=ql0bhjftqq78pr468ma7866gf1;' . "\r\n",
-                ],
-            ];
-            $context            = stream_context_create($options);
-            $file               = file_get_contents($link . '/download', false, $context);
-            $pattern            = '/Content-Disposition: attachment; filename="(.+)"/';
-            $contentDisposition = preg_grep($pattern, $http_response_header);
+function getStreamContext()
+{
+    $env       = getDotEnv();
+    $userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3';
+    $options   = [
+        'http' => [
+            'header' => 'User-Agent: ' . $userAgent . "\r\n" .
+            'Cookie: ' . $env['COOKIE_KEY'] . '=' . $env['COOKIE_VAL'] . ';' . "\r\n",
+        ],
+    ];
+    $context = stream_context_create($options);
+    return $context;
+}
 
-            if (count($contentDisposition) != 1) {
-                continue;
-            }
+function getBookInfo(string $link): ?array {
+    $page = file_get_contents($link, false, getStreamContext());
+    $dom  = new DOMDocument();
+    $dom->loadHTML($page);
+    $xpath         = new DOMXPath($dom);
+    $titleElements = $xpath->query('//*[@id="main"]/h1');
 
-            preg_match($pattern, reset($contentDisposition), $matches);
-            $filename = $matches[1];
+    if (!empty($titleElements->length))
+    {
+        $title            = $titleElements->item(0)->textContent;
+        $titlePattern     = '/(.+)\s*\(.+\)/i';
+        $titleReplacement = '$1';
+        $title            = trim(preg_replace($titlePattern, $titleReplacement, $title));
 
-            if (file_exists($filename)) {
-                echo 'Файл уже скачан.' . PHP_EOL;
-                continue;
-            }
+        $authorsElements = $xpath->query('//*[@id="main"]/a[1]');
+        $authors         = !empty($authorsElements->length) ? trim($authorsElements->item(0)->textContent) : '';
+        $yearElements    = $xpath->query('//*[@id="main"]/text()[6]');
+        $year            = '';
 
-            file_put_contents($filename, $file);
-            sleep(random_int(1, 3));
-        } else {
-            echo "Ссылка НЕ содержит /b/. Пропускаем: $link\n";
+        if (!empty($yearElements->length))
+        {
+            $yearInfo = trim($yearElements->item(0)->textContent);
+            preg_match('/(\d{4})/', $yearInfo, $yearMatches);
+            $year = reset($yearMatches) ?? $year;
         }
+
+        return [
+            'authors' => $authors,
+            'title' => $title,
+            'year' => $year,
+        ];
     }
 
-} else {
-    echo "Файл flibusta.txt не найден в папке скрипта.\n";
-    // Ваш код для обработки отсутствия файла
+    echo 'Item not found.';
+    return null;
 }
+
+function main(): void
+{
+    $urlsFile = dirname(__FILE__) . '/flibusta.txt';
+
+    if (!file_exists($urlsFile))
+    {
+        echo "File flibusta.txt not found." . PHP_EOL;
+        return;
+    }
+
+    $links = file($urlsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+
+    foreach ($links as $linkKey => $link)
+    {
+        $link = trim($link);
+
+        if (strpos($link, "/b/") == false)
+        {
+            echo "Link does NOT contain /b/. Skipping: $link\n";
+            return;
+        }
+
+        echo "Downloading $link" . PHP_EOL;
+        $downloadLink       = $link . '/download';
+        $file               = file_get_contents($downloadLink, false, getStreamContext());
+        $pattern            = '/Content-Disposition: attachment; filename="(.+)\.(.+)"/';
+        $contentDisposition = preg_grep($pattern, $http_response_header); // As example: https://www.phpliveregex.com/p/Mr8
+
+        if (count($contentDisposition) != 1)
+        {
+            die('Need to change cookie ¯\_(ツ)_/¯');
+        }
+
+        preg_match($pattern, reset($contentDisposition), $matches);
+        $remoteFilename = $matches[1];
+        $extension      = $matches[2] ?? pathinfo($remoteFilename, PATHINFO_EXTENSION);
+        $bookInfo       = getBookInfo($link);
+
+        if (empty($bookInfo))
+        {
+            die('BookInfo Fatality.' . PHP_EOL);
+        }
+
+        $filenameData = [
+            $bookInfo['authors'],
+            sanitizeFilename($bookInfo['title']),
+            $bookInfo['year'],
+        ];
+        $filenameData  = array_filter($filenameData);
+        $localFilename = join(DIRECTORY_SEPARATOR, [
+            getDotEnv()['SAVE_FOLDER'],
+            join(' — ', $filenameData)
+            . '.' . $extension,
+        ]);
+
+        if (file_exists($localFilename))
+        {
+            echo 'File already downloaded.' . PHP_EOL;
+            file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1)));
+            continue;
+        }
+
+        if (!file_put_contents($localFilename, $file) === false)
+        {
+            echo 'Downloaded. Name: ' . $localFilename . PHP_EOL;
+        }
+
+        file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1)));
+
+        sleep(random_int(3, 7));
+    }
+}
+
+main();
