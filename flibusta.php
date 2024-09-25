@@ -26,6 +26,7 @@ function getStreamContext()
         'http' => [
             'header' => 'User-Agent: ' . $userAgent . "\r\n" .
             'Cookie: ' . $env['COOKIE_KEY'] . '=' . $env['COOKIE_VAL'] . ';' . "\r\n",
+            'timeout' => 60,
         ],
     ];
     $context = stream_context_create($options);
@@ -71,7 +72,10 @@ function getBookInfo(string $link): ?array {
 
 function main(): void
 {
-    $urlsFile = dirname(__FILE__) . '/flibusta.txt';
+    $urlsFile   = dirname(__FILE__) . '/flibusta.txt';
+    $cliOptions = getopt('', [
+        'useRemoteFilename',
+    ]);
 
     if (!file_exists($urlsFile))
     {
@@ -92,8 +96,15 @@ function main(): void
         }
 
         echo "Downloading $link" . PHP_EOL;
-        $downloadLink       = $link . '/download';
-        $file               = file_get_contents($downloadLink, false, getStreamContext());
+        $downloadLink = $link . '/download';
+        $file         = file_get_contents($downloadLink, false, getStreamContext());
+
+        if ($file === false)
+        {
+            echo 'Not downloaded.' . PHP_EOL;
+            continue;
+        }
+
         $pattern            = '/Content-Disposition: attachment; filename="(.+)\.(.+)"/';
         $contentDisposition = preg_grep($pattern, $http_response_header); // As example: https://www.phpliveregex.com/p/Mr8
 
@@ -105,24 +116,32 @@ function main(): void
         preg_match($pattern, reset($contentDisposition), $matches);
         $remoteFilename = $matches[1];
         $extension      = $matches[2] ?? pathinfo($remoteFilename, PATHINFO_EXTENSION);
-        $bookInfo       = getBookInfo($link);
 
-        if (empty($bookInfo))
+        if (isset($cliOptions['useRemoteFilename']))
         {
-            die('BookInfo Fatality.' . PHP_EOL);
+            $localFilename = $remoteFilename . '.' . $extension;
         }
+        else
+        {
+            $bookInfo = getBookInfo($link);
 
-        $filenameData = [
-            $bookInfo['authors'],
-            sanitizeFilename($bookInfo['title']),
-            $bookInfo['year'],
-        ];
-        $filenameData  = array_filter($filenameData);
-        $localFilename = join(DIRECTORY_SEPARATOR, [
-            getDotEnv()['SAVE_FOLDER'],
-            join(' — ', $filenameData)
-            . '.' . $extension,
-        ]);
+            if (empty($bookInfo))
+            {
+                die('BookInfo Fatality.' . PHP_EOL);
+            }
+
+            $filenameData = [
+                $bookInfo['authors'],
+                sanitizeFilename($bookInfo['title']),
+                $bookInfo['year'],
+            ];
+            $filenameData  = array_filter($filenameData);
+            $localFilename = join(DIRECTORY_SEPARATOR, [
+                getDotEnv()['SAVE_FOLDER'],
+                join(' — ', $filenameData)
+                . '.' . $extension,
+            ]);
+        }
 
         if (file_exists($localFilename))
         {
