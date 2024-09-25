@@ -2,7 +2,7 @@
 
 # TODO:
 # 1/ Extract      file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1))); to function
-# 2/ Replace flibusta.txt with value from .env.
+# 2/ Replace flibusta.txt with value from .env-file.
 # 3/ Move getBookInfo before downloading.
 
 function sanitizeFilename(string $filename, string $sanitizer = ' ')
