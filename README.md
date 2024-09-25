@@ -1,5 +1,5 @@
 # flibusta-downloader
-Downloading files from Flibusta.is
+Downloading files from flibusta.is/.net/.lib/.site
 
 # Currently:
 1. List of URLs should be in *flibusta.txt*
