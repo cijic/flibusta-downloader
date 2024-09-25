@@ -2,7 +2,7 @@
 
 # TODO:
 # 1/ Extract      file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1))); to function
-# 2/ Replace flibusta.txx with value from .env.
+# 2/ Replace flibusta.txt with value from .env.
 # 3/ Move getBookInfo before downloading.
 
 function sanitizeFilename(string $filename, string $sanitizer = ' ')
@@ -24,7 +24,7 @@ function getStreamContext()
     $userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3';
     $options   = [
         'http' => [
-            'header' => 'User-Agent: ' . $userAgent . "\r\n" .
+            'header'  => 'User-Agent: ' . $userAgent . "\r\n" .
             'Cookie: ' . $env['COOKIE_KEY'] . '=' . $env['COOKIE_VAL'] . ';' . "\r\n",
             'timeout' => 60,
         ],
@@ -33,15 +33,15 @@ function getStreamContext()
     return $context;
 }
 
-function getBookInfo(string $link): ?array {
+function getBookInfo(string $link): ?array
+{
     $page = file_get_contents($link, false, getStreamContext());
     $dom  = new DOMDocument();
     $dom->loadHTML($page);
     $xpath         = new DOMXPath($dom);
     $titleElements = $xpath->query('//*[@id="main"]/h1');
 
-    if (!empty($titleElements->length))
-    {
+    if (!empty($titleElements->length)) {
         $title            = $titleElements->item(0)->textContent;
         $titlePattern     = '/(.+)\s*\(.+\)/i';
         $titleReplacement = '$1';
@@ -52,8 +52,7 @@ function getBookInfo(string $link): ?array {
         $yearElements    = $xpath->query('//*[@id="main"]/text()[6]');
         $year            = '';
 
-        if (!empty($yearElements->length))
-        {
+        if (!empty($yearElements->length)) {
             $yearInfo = trim($yearElements->item(0)->textContent);
             preg_match('/(\d{4})/', $yearInfo, $yearMatches);
             $year = reset($yearMatches) ?? $year;
@@ -61,8 +60,8 @@ function getBookInfo(string $link): ?array {
 
         return [
             'authors' => $authors,
-            'title' => $title,
-            'year' => $year,
+            'title'   => $title,
+            'year'    => $year,
         ];
     }
 
@@ -77,20 +76,17 @@ function main(): void
         'useRemoteFilename',
     ]);
 
-    if (!file_exists($urlsFile))
-    {
+    if (!file_exists($urlsFile)) {
         echo "File flibusta.txt not found." . PHP_EOL;
         return;
     }
 
     $links = file($urlsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
-    foreach ($links as $linkKey => $link)
-    {
+    foreach ($links as $linkKey => $link) {
         $link = trim($link);
 
-        if (strpos($link, "/b/") == false)
-        {
+        if (strpos($link, "/b/") == false) {
             echo "Link does NOT contain /b/. Skipping: $link\n";
             return;
         }
@@ -99,8 +95,7 @@ function main(): void
         $downloadLink = $link . '/download';
         $file         = file_get_contents($downloadLink, false, getStreamContext());
 
-        if ($file === false)
-        {
+        if ($file === false) {
             echo 'Not downloaded.' . PHP_EOL;
             continue;
         }
@@ -108,8 +103,7 @@ function main(): void
         $pattern            = '/Content-Disposition: attachment; filename="(.+)\.(.+)"/';
         $contentDisposition = preg_grep($pattern, $http_response_header); // As example: https://www.phpliveregex.com/p/Mr8
 
-        if (count($contentDisposition) != 1)
-        {
+        if (count($contentDisposition) != 1) {
             die('Need to change cookie ¯\_(ツ)_/¯');
         }
 
@@ -117,16 +111,12 @@ function main(): void
         $remoteFilename = $matches[1];
         $extension      = $matches[2] ?? pathinfo($remoteFilename, PATHINFO_EXTENSION);
 
-        if (isset($cliOptions['useRemoteFilename']))
-        {
+        if (isset($cliOptions['useRemoteFilename'])) {
             $localFilename = $remoteFilename . '.' . $extension;
-        }
-        else
-        {
+        } else {
             $bookInfo = getBookInfo($link);
 
-            if (empty($bookInfo))
-            {
+            if (empty($bookInfo)) {
                 die('BookInfo Fatality.' . PHP_EOL);
             }
 
@@ -143,15 +133,13 @@ function main(): void
             ]);
         }
 
-        if (file_exists($localFilename))
-        {
+        if (file_exists($localFilename)) {
             echo 'File already downloaded.' . PHP_EOL;
             file_put_contents('flibusta.txt', join("\n", array_slice($links, $linkKey + 1)));
             continue;
         }
 
-        if (!file_put_contents($localFilename, $file) === false)
-        {
+        if (!file_put_contents($localFilename, $file) === false) {
             echo 'Downloaded. Name: ' . $localFilename . PHP_EOL;
         }
 
